@@ -184,8 +184,8 @@ process SplitNCigarReads {
     clusterOptions = { '-P ressexcon' }
 
     cpus = 8
-    memory = '128 GB'
-    time = '12h'
+    memory = '32 GB'
+    time = '2h'
 
     input:
     tuple val(sid), file("${sid}_md.RG.bam") from  mark_dup1
@@ -202,11 +202,135 @@ process SplitNCigarReads {
     mkdir tmp
     picard CreateSequenceDictionary R=ref.fasta O=ref.dict 
     samtools index ${sid}_md.RG.bam
-    java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true -Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -Xmx32g -jar /usr/local/packages/apps/gatk/4.1.4/binary/gatk-package-4.1.4.0-local.jar SplitNCigarReads -R ref.fasta -I ${sid}_md.RG.bam -O ${sid}_md_cig.RG.bam --tmp-dir tmp 
+    java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true -Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -Xmx32g -jar /usr/local/packages/apps/gatk/4.1.4/binary/gatk-package-4.1.4.0-local.jar SplitNCigarReads -R ref.fasta -I ${sid}_md.RG.bam -O ${sid}_md_cig.RG.bam -L CM020861.1 --tmp-dir tmp 
     """
 
 }
 
+
+/*
+process snp_calling {
+    errorStrategy 'finish'
+
+    tag {'haplotypecaller_' + '_' + sid }
+    publishDir 'vcfs', mode: 'copy', overwrite: true, pattern: '*vcf.gz'
+
+    queue = "ressexcon.q"
+    clusterOptions = { '-P ressexcon' }
+    cpus = 16
+    memory = '192 GB'
+    time = '24h'
+
+    input:
+    tuple val(sid), file("${sid}_md_cig.RG.bam") from cigar1
+    file('ref.fasta') from ref
+    file('ref.fasta.fai') from ref_index
+
+    output:
+    tuple val(sid), file("${sid}_md_cig.RG.bam"), file("${sid}.vcf.gz") into snp_called1
+
+    script:
+    """
+    #!/bin/bash
+    source /usr/local/extras/Genomics/.bashrc
+    module load apps/gatk/4.1.4/binary
+    source activate picard 
+    mkdir tmp
+    samtools faidx ref.fasta
+    samtools index ${sid}_md_cig.RG.bam
+    picard CreateSequenceDictionary R=ref.fasta O=ref.dict
+
+    java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true -Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -Xmx192g -XX:ParallelGCThreads=16 -jar /usr/local/packages/apps/gatk/4.1.4/binary/gatk-package-4.1.4.0-local.jar HaplotypeCaller \
+       	-R ref.fasta \
+        -I ${sid}_md_cig.RG.bam \
+        -O ${sid}.vcf.gz \
+	-L CM020861.1 \
+        -native-pair-hmm-threads 8 \
+       	--tmp-dir tmp
+    """
+
+}
+
+
+
+process snpfilter {
+
+    errorStrategy 'finish'
+    tag {'featurecount_' + '_' + sid }
+    publishDir 'vcfs', mode: 'copy', overwrite: true, pattern: '*vcf.gz'
+
+
+    input:
+    tuple val(sid), file("${sid}_md_cig.RG.bam"), file("${sid}.vcf.gz") from snp_called1
+    file('ref.fasta') from ref
+    file('ref.fasta.fai') from ref_index
+
+    output:
+    tuple val(sid), file("${sid}_final.vcf"), file("${sid}_md_cig.RG.bam") into filtered1
+    file("${sid}_marked.vcf.gz") into unfiltered1
+    file("${sid}_final.vcf") into filtered2
+
+
+    script:
+    """
+    #!/bin/bash
+    source /usr/local/extras/Genomics/.bashrc
+    tabix -p vcf ${sid}.vcf.gz
+    java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true -Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -jar /usr/local/community/Genomics/apps/gatk/4.1.0.0/gatk-package-4.1.0.0-local.jar VariantFiltration \
+	-R ref.fasta \
+	-V ${sid}.vcf.gz \
+	-O clus.vcf.gz \
+	-cluster 10 \
+	-window 145 
+    ##CLUSTERS MARKED
+    java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true -Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -jar /usr/local/community/Genomics/apps/gatk/4.1.0.0/gatk-package-4.1.0.0-local.jar VariantFiltration \
+	-V clus.vcf.gz \
+	-O ${sid}_marked.vcf.gz \
+	--filter-expression "DP < 10" \
+	--filter-name "depth_filter"
+    #DEPTH FILTERED 
+    bcftools view -i 'FILTER="PASS"' depth.vcf.gz > ${sid}_final.vcf
+    
+    #REMOVED NON-PASS VARIANTS
+    
+    #FS > 30
+    # QD < 2
+    # DP < 10
+    # GQ < 30
+    
+    
+
+    
+    """
+
+}
+
+
+process ASEReadCounter { 
+
+    errorStrategy 'finish'
+    tag {'featurecount_' + '_' + sid }
+    
+    input:
+    file('ref.fasta') from ref
+    file('ref.fasta.fai') from ref_index
+    tuple val(sid), file("${sid}_final.vcf"), file("${sid}_md_cig.RG.bam") from filtered1
+
+    output:
+    
+
+    script:
+    """
+    #!/bin/bash
+    source /usr/local/extras/Genomics/.bashrc
+    source activate gatk
+    gatk --java-options "-Xmx4g" -R ref.fasta -I ${sid}_md_cig.RG.bam -V ${sid}_final.vcf -O ASE_${sid}.txt
+
+    """
+
+}
+
+*/
 
 process snp_calling_gvcf {
     errorStrategy 'finish'
@@ -216,8 +340,8 @@ process snp_calling_gvcf {
 
     queue = "ressexcon.q"
     clusterOptions = { '-P ressexcon' }
-    cpus = 28
-    memory = '384 GB'
+    cpus = 16
+    memory = '32 GB'
     time = '12h'
 
     input:
@@ -241,10 +365,11 @@ process snp_calling_gvcf {
     samtools index ${sid}_md_cig.RG.bam
     picard CreateSequenceDictionary R=ref.fasta O=ref.dict
 
-    java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true -Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -Xmx384g -XX:ParallelGCThreads=28 -jar /usr/local/packages/apps/gatk/4.1.4/binary/gatk-package-4.1.4.0-local.jar HaplotypeCaller \
+    java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true -Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -Xmx192g -XX:ParallelGCThreads=16 -jar /usr/local/packages/apps/gatk/4.1.4/binary/gatk-package-4.1.4.0-local.jar HaplotypeCaller \
         -R ref.fasta \
         -I ${sid}_md_cig.RG.bam \
         -O ${sid}.g.vcf.gz \
+        -L CM020861.1 \
         -native-pair-hmm-threads 8 \
         -ERC GVCF \
        	--tmp-dir tmp
@@ -264,12 +389,12 @@ process genotpye_gvcfs {
 
     queue = "ressexcon.q"
     clusterOptions = { '-P ressexcon' }
-    cpus = 8
-    memory = '64 GB'
-    time = '12h'
+    cpus = 4
+    memory = '8 GB'
+    time = '2h'
 
     input:
-    file("${sid}.g.vcf.gz") from to_genotype
+    file(samples) from to_genotype.collect()
     file('ref.fasta') from ref
     file('ref.fasta.fai') from ref_index
 
@@ -292,10 +417,17 @@ process genotpye_gvcfs {
 
 
     mkdir tmp
+    echo -n java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true -Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -jar /usr/local/community/Genomics/apps/gatk/4.1.0.0/gatk-package-4.1.0.0-local.jar GenomicsDBImport \\ >> command.bash 
+    for i in rh*.g.vcf.gz
+    do
+    echo -n -V \$i \\ >> command.bash
+    done
+    echo --genomicsdb-workspace-path my_database --tmp-dir=tmp -L CM020861.1 >> command.bash
+    bash command.bash
     java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true -Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -jar /usr/local/community/Genomics/apps/gatk/4.1.0.0/gatk-package-4.1.0.0-local.jar GenotypeGVCFs \
 	-R ref.fasta \
-	-V ${sid}.g.vcf.gz \
-	-O ${sid}.genotyped.vcf.gz
+	-V gendb://my_database \
+	-O genotyped.vcf
     
     """
 
