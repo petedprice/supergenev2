@@ -3,12 +3,20 @@ ref=file(params.ref)
 ref_index=file(params.ref_index)
 metadata=file(params.metadata)
 adapter=file(params.adapter)
+contigs=file(params.contigs)
+
 //targetsnps=params.targetsnps
 
 ref_ch=channel
     .fromPath(metadata)
     .splitCsv()
     .map {row ->tuple(row[0],row[1])}
+
+
+contig_ch=Channel
+    .from(contigs)
+    .splitText()
+  
 
 
 process trim {
@@ -176,7 +184,7 @@ process mark_duplicates {
 process SplitNCigarReads {
     errorStrategy 'finish'
 
-    tag {'SplitNCigarReads_' + '_' + sid }
+    tag {'SplitNCigarReads_' + '_' + sid + '_' + contig }
 
     publishDir 'bam', mode: 'copy', overwrite: true, pattern: '*bam'
 
@@ -188,12 +196,13 @@ process SplitNCigarReads {
     time = '12h'
 
     input:
+    //tuple val(sid), file("${sid}_md.RG.bam"), val(contig) from  mark_dup1.combine(contig_ch)
     tuple val(sid), file("${sid}_md.RG.bam") from  mark_dup1
     file('ref.fasta') from ref
     file('ref.fasta.fai') from ref_index
-    
+
     output:
-    tuple val(sid), file("${sid}_md_cig.RG.bam") into cigar1, cigar2
+    tuple val(sid), file("${sid}_md_cig.RG.bam"), file("${sid}_md_cig.RG.bam.bai") into cigar1, cigar2
 
     """
     #!/bin/bash
@@ -202,11 +211,11 @@ process SplitNCigarReads {
     mkdir tmp
     picard CreateSequenceDictionary R=ref.fasta O=ref.dict 
     samtools index ${sid}_md.RG.bam
-    java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true -Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -Xmx32g -jar /usr/local/packages/apps/gatk/4.1.4/binary/gatk-package-4.1.4.0-local.jar SplitNCigarReads -R ref.fasta -I ${sid}_md.RG.bam -O ${sid}_md_cig.RG.bam --tmp-dir tmp 
+    java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true -Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -Xmx32g -jar /usr/local/packages/apps/gatk/4.1.4/binary/gatk-package-4.1.4.0-local.jar SplitNCigarReads -R ref.fasta -I ${sid}_md.RG.bam -O ${sid}_md_cig.RG.bam --tmp-dir tmp
+    samtools index ${sid}_md_cig.RG.bam
     """
 
 }
-
 
 process snp_calling_gvcf {
     errorStrategy 'finish'
@@ -221,13 +230,13 @@ process snp_calling_gvcf {
     time = '12h'
 
     input:
-    tuple val(sid), file("${sid}_md_cig.RG.bam") from cigar2
+    tuple val(sid), file("${sid}_md_cig.RG.bam"), val(contig) from cigar2.combine(contig_ch)
     file('ref.fasta') from ref
     file('ref.fasta.fai') from ref_index
 
     output:
-    tuple val(sid), file("${sid}_md_cig.RG.bam"), file("${sid}.g.vcf.gz") into snp_gvcf_called1
-    file("${sid}.g.vcf.gz") into to_genotype
+    tuple val(sid), file("${sid}_md_cig.RG.bam"), file("${contig}_${sid}.g.vcf.gz") into snp_gvcf_called1
+    file("${contig}_${sid}.g.vcf.gz") into to_genotype
 
 
     script:
@@ -244,18 +253,17 @@ process snp_calling_gvcf {
     java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true -Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -Xmx384g -XX:ParallelGCThreads=28 -jar /usr/local/packages/apps/gatk/4.1.4/binary/gatk-package-4.1.4.0-local.jar HaplotypeCaller \
         -R ref.fasta \
         -I ${sid}_md_cig.RG.bam \
-        -O ${sid}.g.vcf.gz \
+        -O ${contig}_${sid}.g.vcf.gz \
         -native-pair-hmm-threads 8 \
+	-L $contig
         -ERC GVCF \
        	--tmp-dir tmp
     rm -r tmp
-    #echo ${sid} > sample.txt
-    #bcftools reheader -s sample.txt ${sid}.g.vcf.gz -o ${sid}.g.vcf.gz
     """
 
 }
 
-
+/*
 process genotpye_gvcfs {
     errorStrategy 'finish'
 
@@ -301,3 +309,4 @@ process genotpye_gvcfs {
 
 }
 
+*/
