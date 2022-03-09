@@ -1,0 +1,5 @@
+1. Change header to sample name using change_header.bash
+2. Index sample gvcfs for the Z using IndexFeatureFile.sh
+3. Generate path to all relevant gvcfs using gvcf_paths.bash to be saved as gvcf.paths
+4. Copy gvcf.paths to CombineGVCFs.sh and submit the job to combine all 10 gvcfs into a single gvcf
+5. Genotype the combined gvcf using GenotypeGVCFs.sh

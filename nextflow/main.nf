@@ -15,18 +15,19 @@ ref_ch=channel
 
 contig_ch=Channel
     .from(contigs)
-    .splitText()
+    .splitCsv()
+    .view()
   
 
 
 process trim {
-
+    errorStrategy 'finish'
 
     queue = "ressexcon.q"
     clusterOptions = { '-P ressexcon' }
     cpus = 4
-    memory = '8 GB'
-    time = '2h'
+    memory = '16 GB'
+    time = '4h'
     
     tag {'trim_' + species + '_' + sid }
 
@@ -52,7 +53,9 @@ process trim {
 
 
 process index_hisat2 {
+    cache 'lenient'
 
+    errorStrategy 'finish'
     queue = "ressexcon.q"
     cpus = 16
     memory = '192 GB'
@@ -63,7 +66,6 @@ process index_hisat2 {
     tag {'hisat index'}
 
 
-    publishDir 'index', mode: 'copy', overwrite: true, pattern: '*'
 
     output:
     file('hisat_index') into hisat_indexed
@@ -84,7 +86,8 @@ process index_hisat2 {
 
 
 process allignment_hisat2 {
-    
+    cache 'lenient'
+    errorStrategy 'finish'    
     tag {'allign_' + '_' + sid }
 
     queue = "ressexcon.q"
@@ -120,6 +123,7 @@ process allignment_hisat2 {
 }
 
 process RG_add {
+    cache 'lenient' 
     errorStrategy 'finish'
 
     tag {'RG_' + '_' + sid }
@@ -150,6 +154,8 @@ process RG_add {
 }
 
 process mark_duplicates {
+    cache 'lenient' 
+    publishDir 'bam', mode: 'copy', overwrite: true, pattern: '*bam'
     errorStrategy 'finish'
 
     tag {'mark_duplicates_' + '_' + sid }
@@ -182,22 +188,24 @@ process mark_duplicates {
 }
 
 process SplitNCigarReads {
-    errorStrategy 'finish'
+    cache 'lenient'
+    errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'finish' }
 
     tag {'SplitNCigarReads_' + '_' + sid + '_' + contig }
 
     publishDir 'bam', mode: 'copy', overwrite: true, pattern: '*bam'
 
-    queue = "ressexcon.q"
-    clusterOptions = { '-P ressexcon' }
+    queue = "molecosh.q"
+    clusterOptions = { '-P molecosh' }
 
-    cpus = 8
-    memory = '128 GB'
-    time = '12h'
+    cpus = { 16 }
+    memory = { 24.GB }
+    time = { 12.hour }
+    maxRetries 10
+
 
     input:
     tuple val(sid), file("${sid}_md.RG.bam"), val(contig) from  mark_dup1.combine(contig_ch)
-    //tuple val(sid), file("${sid}_md.RG.bam") from  mark_dup1
     file('ref.fasta') from ref
     file('ref.fasta.fai') from ref_index
 
@@ -211,23 +219,34 @@ process SplitNCigarReads {
     mkdir tmp
     picard CreateSequenceDictionary R=ref.fasta O=ref.dict 
     samtools index ${sid}_md.RG.bam
-    java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true -Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -Xmx32g -jar /usr/local/packages/apps/gatk/4.1.4/binary/gatk-package-4.1.4.0-local.jar SplitNCigarReads -R ref.fasta -I ${sid}_md.RG.bam -O ${contig}_${sid}_md_cig.RG.bam -L $contig --tmp-dir tmp
+    java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true \
+        -Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -Xmx${task.memory.toMega()}M \
+	-jar /usr/local/packages/apps/gatk/4.1.4/binary/gatk-package-4.1.4.0-local.jar SplitNCigarReads \
+	-R ref.fasta -I ${sid}_md.RG.bam \
+	-O ${contig}_${sid}_md_cig.RG.bam \
+	-L $contig \
+	--tmp-dir tmp 
+
     samtools index ${contig}_${sid}_md_cig.RG.bam
     """
 
 }
 
-process snp_calling_gvcf {
-    errorStrategy 'finish'
 
-    tag {'snp_calling_gvcf_' + '_' + sid }
+process snp_calling_gvcf {
+    cache 'lenient'
+    errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'finish' }
+
+    tag {'snp_calling_gvcf_' + '_' + sid + '_' + contig}
     publishDir 'gvcfs', mode: 'copy', overwrite: true, pattern: '*.g.vcf.gz'
 
     queue = "ressexcon.q"
     clusterOptions = { '-P ressexcon' }
-    cpus = 28
-    memory = '384 GB'
-    time = '12h'
+    cpus = { 2 * task.attempt }
+    memory = { 192.GB }
+    time = { 12.hour }
+    maxRetries 10
+
 
     input:
     tuple val(sid), file("${contig}_${sid}_md_cig.RG.bam"), file("${contig}_${sid}_md_cig.RG.bam.bai"), val(contig) from cigar2
@@ -235,8 +254,8 @@ process snp_calling_gvcf {
     file('ref.fasta.fai') from ref_index
 
     output:
-    tuple val(sid), file("${sid}_md_cig.RG.bam"), file("${contig}_${sid}.g.vcf.gz"), val(contig) into snp_gvcf_called1
-    tuple file("${contig}_${sid}.g.vcf.gz"), val(contig)  into to_genotype
+    tuple val(sid), file("${contig}_${sid}_md_cig.RG.bam"), file("${contig}_${sid}.g.vcf.gz"), val(contig) into snp_gvcf_called1
+    tuple file("${contig}_${sid}.g.vcf.gz"), val(sid), val(contig)  into to_genotype
 
 
     script:
@@ -246,15 +265,17 @@ process snp_calling_gvcf {
     module load apps/gatk/4.1.4/binary
     source activate picard
     mkdir tmp
-    samtools faidx ref.fasta
     picard CreateSequenceDictionary R=ref.fasta O=ref.dict
 
-    java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true -Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -Xmx384g -XX:ParallelGCThreads=28 -jar /usr/local/packages/apps/gatk/4.1.4/binary/gatk-package-4.1.4.0-local.jar HaplotypeCaller \
+    java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true \
+	-Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -Xmx${task.memory.toMega()}M \
+	-XX:ParallelGCThreads=${task.cpus} \
+	-jar /usr/local/packages/apps/gatk/4.1.4/binary/gatk-package-4.1.4.0-local.jar HaplotypeCaller \
         -R ref.fasta \
         -I ${contig}_${sid}_md_cig.RG.bam \
         -O ${contig}_${sid}.g.vcf.gz \
-        -native-pair-hmm-threads 8 \
-	-L $contig
+        -native-pair-hmm-threads ${task.cpus} \
+	-L $contig \
         -ERC GVCF \
        	--tmp-dir tmp
     rm -r tmp
@@ -262,6 +283,7 @@ process snp_calling_gvcf {
 
 }
 
+/*
 process genotpye_gvcfs {
     errorStrategy 'finish'
 
@@ -275,7 +297,7 @@ process genotpye_gvcfs {
     time = '12h'
 
     input:
-    tuple val(sid), file("${sid}_md_cig.RG.bam"), file("${contig}_${sid}.g.vcf.gz"), val(contig) from snp_gvcf_called1.groupTuple(by: contig)
+    tuple file("${contig}_${sid}.g.vcf.gz"), val(sid) from to_genotype.collect()
     file('ref.fasta') from ref
     file('ref.fasta.fai') from ref_index
 
@@ -301,3 +323,4 @@ process genotpye_gvcfs {
 
 }
 
+*/

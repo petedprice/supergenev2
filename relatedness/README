@@ -1,0 +1,6 @@
+1. Using the list of male samples and a list of chromosomes for which they have shared gvcfs, submit the script c1.mergevcf.sh to create merged gvcf files for each sample covering the shared chromosome data. 
+2. Combine gvcfs across samples into a multigvcf using c2.CombineGVCFs.sh
+3. Genotype multi-sample gvcf using c3.GenotypeGVCFs.sh
+4. Filter genotyped multi-sample vcf using c4.vcftools_variant_filter.sh
+5. Run relatedness using c5.relatedness.sh
+6. Run NGSrelate using c6.ngsRelate.sh
