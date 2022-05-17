@@ -1,1 +1,0 @@
-vcftools --gzvcf /fastdata/bop20pp/supergene_wogtf/ASEReadCounter/${1}_genotyped.vcf --positions /fastdata/bop20pp/supergene_wogtf/ASEReadCounter/${1}.g.vcf.gz_filteredsnps.txt --recode --recode-INFO-all --out /fastdata/bop20pp/supergene_wogtf/ASEReadCounter/filt_${1}.vcf

@@ -13,11 +13,22 @@
 
 source /usr/local/extras/Genomics/.bashrc
 
+out=${1#"/fastdata/bop20pp/supergene_wogtf/ASEReadCounter/"}
+out2=${out%".vcf.gz"}
+echo $out2
+echo $out2 > /fastdata/bop20pp/supergene_wogtf/ASEReadCounter/${out2}_reheader.txt
+
+tabix -p vcf $1
+
+bcftools reheader \
+	-s /fastdata/bop20pp/supergene_wogtf/ASEReadCounter/${out2}_reheader.txt \
+	-o /fastdata/bop20pp/supergene_wogtf/ASEReadCounter/${out2}.rh.vcf.gz $1
+
+
 java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true \
 	-Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 \
 	-jar /usr/local/community/Genomics/apps/gatk/4.1.0.0/gatk-package-4.1.0.0-local.jar \
-	ASEReadCounter \
+	GenotypeGVCFs \
 	-R /fastdata/bop20pp/supergene_wogtf/GCA_009859065.2_bTaeGut2.pri.v2_genomic.fasta \
-	-I /fastdata/bop20pp/supergene_wogtf/bam/${1}_md_cig.RG.bam \
-	-V /fastdata/bop20pp/supergene_wogtf/ASEReadCounter/filt_${1}.clus.vcf\
-	-O /fastdata/bop20pp/supergene_wogtf/ASEReadCounter/${1}_ASERout.table
+	-V $1 \
+	-O /fastdata/bop20pp/supergene_wogtf/ASEReadCounter/${out2}.genotyped.g.vcf \

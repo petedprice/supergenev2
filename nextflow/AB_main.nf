@@ -4,8 +4,11 @@ ref_index=file(params.ref_index)
 metadata=file(params.metadata)
 adapter=file(params.adapter)
 contigs=file(params.contigs)
-
-//targetsnps=params.targetsnps
+cdna=file(params.cdna)
+params.GQ=30
+params.DP=10
+GQ=params.GQ
+DP=params.DP
 
 ref_ch=channel
     .fromPath(metadata)
@@ -193,13 +196,13 @@ process SplitNCigarReads {
 
     tag {'SplitNCigarReads_' + '_' + sid + '_' + contig }
 
-    publishDir 'bam', mode: 'copy', overwrite: true, pattern: '*bam*'
+    publishDir 'bam', mode: 'copy', overwrite: true, pattern: '*bam'
 
-    queue = "molecosh.q"
-    clusterOptions = { '-P molecosh' }
-
-    cpus = { 4 * task.attempt }
-    memory = { 12.GB * task.attempt }
+    queue = "ressexcon.q"
+    clusterOptions = { '-P ressexcon' }
+    
+    cpus = { 8 * task.attempt }
+    memory = { 16.GB * task.attempt }
     time = { 12.hour }
     maxRetries 10
 
@@ -241,8 +244,8 @@ process snp_calling_gvcf {
 
     queue = "ressexcon.q"
     clusterOptions = { '-P ressexcon' }
-    cpus = { 2 * task.attempt }
-    memory = { 192.GB }
+    cpus = { 4 * task.attempt }
+    memory = { 96.GB }
     time = { 12.hour }
     maxRetries 10
 
@@ -253,7 +256,7 @@ process snp_calling_gvcf {
     file('ref.fasta.fai') from ref_index
 
     output:
-    tuple val(sid), file("${contig}_${sid}_md_cig.RG.bam"), file("${contig}_${sid}.g.vcf.gz"), val(contig) into snp_gvcf_called1
+    tuple val(sid), file("${contig}_${sid}_md_cig.RG.bam"), file("${contig}_${sid}.g.vcf.gz"), val(contig), file('ref.dict')  into snp_gvcf_called1
     tuple file("${contig}_${sid}.g.vcf.gz"), val(sid), val(contig)  into to_genotype
 
 
@@ -277,44 +280,156 @@ process snp_calling_gvcf {
 
 }
 
-/*
-process genotpye_gvcfs {
-    errorStrategy 'finish'
+
+process genotpye_gvcfs_ASE {
+    cache 'lenient'
+    errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'finish' }
 
     tag {'genotpye_gvcfs'}
     publishDir 'genotyped_vcfs', mode: 'copy', overwrite: true, pattern: '*vcf.gz'
 
-    queue = "ressexcon.q"
-    clusterOptions = { '-P ressexcon' }
-    cpus = 8
-    memory = '64 GB'
-    time = '12h'
+    cpus = { 2 * task.attempt }
+    memory = { 8.GB * task.attempt }
+    time = { 4.hour }
 
     input:
-    tuple file("${contig}_${sid}.g.vcf.gz"), val(sid) from to_genotype.collect()
+    tuple val(sid), file("${contig}_${sid}_md_cig.RG.bam"), file("${contig}_${sid}.g.vcf.gz"), val(contig), file('ref.dict')  from snp_gvcf_called1
     file('ref.fasta') from ref
     file('ref.fasta.fai') from ref_index
 
     output:
-    file("genotyped.vcf") into genotyped1
+    tuple val(sid), val(contig), file("${contig}_${sid}.genotyped.vcf.gz"), file("${contig}_${sid}.genotyped.vcf.gz.tbi") into genotyped1
 
     script:
     """
     #!/bin/bash
-    
-    source /usr/local/extras/Genomics/.bashrc
-    module load apps/gatk/4.1.4/binary
+
+    module load apps/python/anaconda3-4.2.0
+    source activate gatk
     mkdir tmp
 
-    bcftools concat *.vcf.gz > ${sid}.g.vcf
-    gzip ${sid}.g.vcf    
-    java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true -Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -jar /usr/local/community/Genomics/apps/gatk/4.1.0.0/gatk-package-4.1.0.0-local.jar GenotypeGVCFs \
-	-R ref.fasta \
-	-V ${sid}.g.vcf.gz \
-	-O ${sid}.genotyped.vcf.gz
+    tabix -p vcf ${contig}_${sid}.g.vcf.gz
+
+    gatk GenotypeGVCFs \
+	-R $ref \
+	-V ${contig}_${sid}.g.vcf.gz \
+	-O ${contig}_${sid}.genotyped.vcf.gz
+
+    """
+
+}
+
+/*
+process filter_vcf_WG_ASE {
+    cache 'lenient'
+    errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'finish' }
+
+
+    tag {'filter_gen'}
+    publishDir 'filtered_genotyped_vcfs', mode: 'copy', overwrite: true, pattern: '*vcf'
+
+    cpus = 2
+    memory = '10 GB'
+    time = '2h'
+
+    input:
+    tuple val(sid), val(contig), file("${contig}_${sid}.genotyped.vcf.gz"), file("${contig}_${sid}.genotyped.vcf.gz.tbi") from genotyped1
+    file('ref.fasta') from ref
+    file('ref.fasta.fai') from ref_index
+    val(GQ) from GQ
+    val(DP) from DP
+
     
+    output:
+    tuple val(sid), val(contig), file("${contig}_${sid}.genotyped_filtered.recode.vcf") into filtered1
+
+    script:
+    """
+    #!/bin/bash
+
+    source /usr/local/extras/Genomics/.bashrc
+
+    java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true -Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -jar /usr/local/community/Genomics/apps/gatk/4.1.0.0/gatk-package-4.1.0.0-local.jar VariantFiltration \
+	-R $ref \
+	-V ${contig}_${sid}.genotyped.vcf.gz \
+        -O tempclus.vcf \
+        -cluster 10 \
+        -window 145
+
+    bcftools view -f PASS tempclus.vcf > tempclus.pass.vcf
+
+    java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true \
+	-Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 \
+	-jar /usr/local/community/Genomics/apps/gatk/4.1.0.0/gatk-package-4.1.0.0-local.jar \
+	SelectVariants \
+	-R $ref \
+        -V tempclus.pass.vcf \
+        --restrict-alleles-to BIALLELIC \
+        --select-type-to-include SNP \
+        -O tempclus.filt.ba.vcf
+
+    vcftools --vcf tempclus.filt.ba.vcf --out ${contig}_${sid}.genotyped_filtered_gq${GQ}_dp${DP} --minGQ $GQ --minDP $DP --recode --recode-INFO-all
+
     """
 
 }
 
 */
+process salmon_index {
+   //conda 'bioconda::salmon'
+
+   tag {'salmon_index_' + species }
+
+   publishDir 'salmon_index', mode: 'copy', overwrite: true, pattern: '*index*'
+
+   output:
+   file("salmon_index") into salmon_indexed
+
+   script:
+   """
+   #!/bin/bash
+   source /usr/local/extras/Genomics/.bashrc
+   source activate salmon
+
+   salmon index -t $cdna -i salmon_index
+   """
+
+}
+
+
+
+process salmon_quant {
+    //conda 'bioconda::salmon'
+    
+    cache 'lenient'
+    errorStrategy 'finish'
+
+    tag {'salmon_quant_' + species + '_' + sid }
+
+    queue = "ressexcon.q"
+    clusterOptions = { '-P ressexcon' }
+
+    cpus = { 4 * task.attempt }
+    memory = { 12.GB * task.attempt }
+    time = { 1.hour * task.attempt }
+    maxRetries 10
+
+    publishDir 'salmon_quant', mode: 'copy', overwrite: true, pattern: '*salmon_out'
+
+    input:
+    file("salmon_index") from salmon_indexed
+    tuple val(species), val(sid), file("${species}_${sid}_forward_paired.fastq.gz"), file("${species}_${sid}_reverse_paired.fastq.gz") from trimmed1
+
+    output:
+    file("${sid}_salmon_out") into salmon_quant1
+
+    script:
+
+    """
+    #!/bin/bash
+    source /usr/local/extras/Genomics/.bashrc
+    source activate salmon
+    salmon quant -i salmon_index -l A -1 ${species}_${sid}_forward_paired.fastq.gz -2 ${species}_${sid}_reverse_paired.fastq.gz --validateMappings -o ${sid}_salmon_out --gcBias --seqBias
+    """
+
+}

@@ -13,10 +13,15 @@
 
 source /usr/local/extras/Genomics/.bashrc
 
+out=${1#"/fastdata/bop20pp/supergene_wogtf/gvcfs/"}
+out2=${out%".g.vcf.gz"}
+
+tabix -p vcf $1
+
 java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true \
 	-Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 \
 	-jar /usr/local/community/Genomics/apps/gatk/4.1.0.0/gatk-package-4.1.0.0-local.jar \
 	GenotypeGVCFs \
 	-R /fastdata/bop20pp/supergene_wogtf/GCA_009859065.2_bTaeGut2.pri.v2_genomic.fasta \
-	-V /fastdata/bop20pp/supergene_wogtf/gvcfs/${1}.g.vcf.gz \
-	-O /fastdata/bop20pp/supergene_wogtf/ASEReadCounter/${1}_genotyped.vcf
+	-V $1 \
+	-O /fastdata/bop20pp/supergene_wogtf/ASEReadCounter/vcfs/${out2}.genotyped.g.vcf \
