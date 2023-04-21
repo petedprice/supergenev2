@@ -2,14 +2,11 @@
 
 #$ -l h_rt=1:0:0
 
-#$ -l rmem=16G
+#$ -l rmem=8G
 
-#$ -pe smp 4
+#$ -pe smp 2
 
-#$ -P ressexcon
-#$ -q ressexcon.q
-
-#$ -wd /fastdata/bop20pp/supergene_wogtf/ASEReadCounter/wdir
+#$ -wd /fastdata/bop20pp/supergene_AB_maleref/genotype/wdir
 
 source /usr/local/extras/Genomics/.bashrc
 

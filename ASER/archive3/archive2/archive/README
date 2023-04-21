@@ -1,0 +1,2 @@
+1. Using GenotypeGVCFs2.sh, genotype reheadered gvcfs from the genotyping step stored in gvcf/combine
+2. Using SelectVariants.sh, filter the genotyped gvcfs for variants that are biallelic 

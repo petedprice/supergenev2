@@ -1,4 +1,4 @@
-reads_ch = Channel.fromFilePairs(params.reads + '/*{1,2}.fastq.gz')
+reads_ch = Channel.fromFilePairs(params.reads + '/*{_R1,_R2}.fastq.gz')
 ref=file(params.ref)
 ref_index=file(params.ref_index)
 metadata=file(params.metadata)
@@ -280,7 +280,7 @@ process snp_calling_gvcf {
 
 }
 
-
+/*
 process genotpye_gvcfs_ASE {
     cache 'lenient'
     errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'finish' }
@@ -319,7 +319,7 @@ process genotpye_gvcfs_ASE {
 
 }
 
-/*
+
 process filter_vcf_WG_ASE {
     cache 'lenient'
     errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'finish' }
@@ -374,7 +374,7 @@ process filter_vcf_WG_ASE {
 
 }
 
-*/
+
 process salmon_index {
    //conda 'bioconda::salmon'
 
@@ -433,3 +433,4 @@ process salmon_quant {
     """
 
 }
+*/

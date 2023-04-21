@@ -1,0 +1,11 @@
+,code,species,sex,tissue,sample,ensembl_datasets,A_genotypes,B_genotypes,HET,genotype
+1,tgu_Sample_1-3,tgu,F,G,TGU13,Taeniopygia guttata,0.0112359550561798,0.925093632958802,0,B_genotypes
+2,tgu_Sample_2-4,tgu,M,G,TGU14,Taeniopygia guttata,0.258312020460358,0.268542199488491,0.416879795396419,uncertain
+3,tgu_Sample_3-6,tgu,M,G,TGU17,Taeniopygia guttata,0.249394673123487,0.285714285714286,0.404358353510896,uncertain
+4,tgu_Sample_4-8,tgu,F,G,TGU22,Taeniopygia guttata,0.959514170040486,0.0283400809716599,0.00404858299595142,A_genotypes
+5,tgu_Sample_5-9,tgu,F,G,TGU23,Taeniopygia guttata,0.909871244635193,0.0815450643776824,0,A_genotypes
+6,tgu_Sample_6-11,tgu,F,G,TGU25,Taeniopygia guttata,0.0253164556962025,0.911392405063291,0,B_genotypes
+7,tgu_Sample_7-12,tgu,M,G,TGU26,Taeniopygia guttata,0.239080459770115,0.252873563218391,0.439080459770115,uncertain
+8,tgu_Sample_8-13,tgu,M,G,TGU27,Taeniopygia guttata,0.878306878306878,0.0687830687830688,0.0423280423280423,A_genotypes
+9,tgu_Sample_9-14,tgu,F,G,TGU28,Taeniopygia guttata,0.0114503816793893,0.923664122137405,0,B_genotypes
+10,tgu_Sample_10-15,tgu,M,G,TGU29,Taeniopygia guttata,0.883233532934132,0.0449101796407186,0.0568862275449102,A_genotypes
